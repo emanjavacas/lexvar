@@ -1,0 +1,21 @@
+
+* Mongoexport
+#+BEGIN_SRC sh
+mongoexport -d blogs -c be -f post -q '{lang : "nl", length : {$gte:40}}' --csv -o lexvar/lexvar_be.raw
+#+END_SRC
+
+* Splitting
+#+BEGIN_SRC sh
+split --numeric-suffixes --line-bytes=28000000 --additional-suffix=.split lexvar_at.raw lexvar_at_
+#+END_SRC
+
+* Preprocessing
+#+BEGIN_SRC sh
+sed -r -e 's@((ht|f)tp(s){0,1}\://){0,1}www[0-9]{0,1}\.[^ ]*@URItoken@g' -e 's@((ht|f)tp(s){0,1}\://)[^ ]*@URItoken@g' -e 's/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}/EMAILtoken/g'
+#+END_SRC
+
+* Tokenising
+#+BEGIN_SRC sh
+for file in lexvar_[deat]*; do ucto -L "de" -n -P -s "" $file ${file}.tkns; done
+for file in lexvar_[benl]*; do ucto -L "nl" -n -P -s "" $file ${file}.tkns; done
+#+END_SRC
