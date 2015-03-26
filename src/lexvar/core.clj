@@ -1,6 +1,8 @@
 (ns lexvar.counter
   (:require [my-utils.io :refer :all]
-            ;; [my-utils.syntax :refer [invert-map reduce-vk]]
+            [my-utils.syntax :refer [invert-map map-vk]]
+            [bindnlp.mate-tools-clj :as mate]
+            [bindnlp.tt4j-clj :as tt4j]
             [clojure.java.io :as io]
             [clojure.string :as s]
             [clojure.core.matrix :refer [new-sparse-array mset!]]))
@@ -176,3 +178,8 @@
 
 (space->file m "mmap" :format [:dissect-sparse])
 (= m (load-space "mmap.sm" :format :dissect-sparse))
+
+(def tagger (mate/create-tagger "/Users/quique/code/clojure/bindnlp/models/ger-mate-tools/tag-ger-3.6.model"))
+
+
+
