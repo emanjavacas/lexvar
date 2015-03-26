@@ -1,6 +1,8 @@
 (ns lexvar.counter
-  (:require [my-utils.io :refer [frm-save frm-load lazy-lines]]
+  (:require [my-utils.io :refer :all]
+            ;; [my-utils.syntax :refer [invert-map reduce-vk]]
             [clojure.java.io :as io]
+            [clojure.string :as s]
             [clojure.core.matrix :refer [new-sparse-array mset!]]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -89,6 +91,18 @@
               :let [context-str (apply str (interpose " " (flatten (map (fn [[w v]] [(get index-col w) v]) context))))]]
         (println (str target " | " context-str))))))
 
+(defn- load-s-space-sparse
+  [space-fn cols]
+  (let [space (atom {})
+        lines (rest (lazy-lines space-fn))
+        inv-cols (invert-map (frm-load cols))]
+    (doseq [line lines
+            :let [[key val] (map s/trim (s/split line #"\|"))
+                  contexts (map parse-number (s/split val #" "))
+                  contexts-map (map-vk (apply hash-map contexts)
+                                       #(get inv-cols %))]]
+      (swap! space assoc key contexts-map))))
+
 (defn- space->dissect-sparse
   "http://clic.cimec.unitn.it/composes/toolkit/matrix_file.html#cooccurrence-matrix-file"
   [space index-row index-col out-fn]
@@ -104,56 +118,61 @@
     (binding [*out* wrt]
       (doseq [w (keys index-col)] (println w)))))
 
-(defn space->file
-  "Unpure function. It writes a space to a specifed format.
-  Defaults to a s-expression format"
-  [space out-fn & {:keys [format index-row index-col]
-                   :or {format :default}}]
+(defn load-dissect-sparse
+  [space-fn]
+  {:pre [(.endsWith space-fn ".sm")]}
+  (let [lines (lazy-lines space-fn)
+        space (atom {})]
+    (doseq [line lines
+            :let [[row col val] (s/split line #"[ \t]")]]
+      (swap! space assoc-in [row col] (parse-number val)))
+    @space))
+
+(defn save-space
+  "Unpure function. It writes a space to a seq of specifed formats.
+  Defaults to a s-expression format. pre-indexed rows and cols can be 
+  provided. Otherwise indexes will be computed and only stored if
+  specified in the format vector"
+  [space out-fn & {:keys [format index-row index-col] :or {format [:default]}}]
+  {:pre [(vector? format)]}
+  (if (and (= :default (first format)) (= 1 (count format)))
+    (frm-save (str out-fn ".ss.clj") space)
+    (let [index-row (or index-row (index-rows space))
+          index-col (or index-col (index-cols space))]
+      (doseq [f format]
+        (case f
+          :row (frm-save (str out-fn ".rows.clj") index-row)
+          :col (frm-save (str out-fn ".cols.clj") index-col)
+          :s-space-sparse (space->sspace-sparse space index-row index-col out-fn)
+          :dissect-sparse (space->dissect-sparse space index-row index-col out-fn)
+          :default        (frm-save (str out-fn ".ss.clj") space))))))
+
+(defn load-space
+  [space-fn & {:keys [format cols-fn]}]
+  {:pre [(if (= format :s-space-sparse) cols-fn true)]}
   (case format
-    :row (frm-save out-fn (or index-row (index-rows space)))
-    :col (frm-save out-fn (or index-col (index-cols space)))
-    :s-space-sparse (space->sspace-sparse
-                     space
-                     (or index-col (index-cols space))
-                     (or index-row (index-rows space))
-                     out-fn)
-    :dissect-sparse (space->dissect-sparse
-                     (or index-col (index-cols space))
-                     (or index-row (index-rows space))                     
-                     space out-fn)
-    :default (frm-save out-fn space)))
+    :s-space-sparse (load-s-space-sparse space-fn cols-fn)
+    :dissect-sparse (load-dissect-sparse space-fn)
+    :default (frm-load space-fn)))
 
 ;;; tests
-(def test-sent ["toen" "ik" "jong" "was" "." "toen"])
-(n-window "toen" test-sent 3)
-
-(def m {:a {:A 1 :B 2 :R 6} 
-        :b {:A 2 :V 3 :H 1}
-        :c {:D 2 :R 3 :V 1}})
-
-;; (space->sspace-sparse m (index-rows m) (index-cols m) "test")
-;; (index-cols m)
-;; (sum-col :V m)
-;; (sum-row :a m)
-
 (def test-file "/Users/quique/code/clojure/lexvar/resources/test1.sents")
 (def test-dir "/Users/quique/code/clojure/lexvar/resources")
 (def sents (lazy-lines test-file))
-(count sents)
 (def sents-dir (lazy-lines test-dir :input :dir))
-(count sents-dir)
 
 (defn process-sent [s]
   (map #(.toLowerCase %)
        (-> s
-           clojure.string/trim
-           (clojure.string/split #" "))))
+           s/trim
+           (s/split #" "))))
 
-(process-sent (first sents))
+(def m {":a" {":A" 1 ":B" 2 ":R" 6} 
+        ":b" {":A" 2 ":V" 3 ":H" 1}
+        ":c" {":D" 2 ":R" 3 ":V" 1}})
 
-(def my-sents (map process-sent sents-dir))
-(def space (compute-space my-sents (fn [w sent] (n-window w sent 4))))
-(space->file space "300words" :format :s-space-sparse)
-(space->file m (io/file "dummy1") :format :row)
-(space->file m "test.test" :format :row)
+(space->file m "mmap" :format [:s-space-sparse :row :col])
+(= m (load-space "mmap.sspace" "mmaprows.clj" "mmapcols.clj" :format :s-space-sparse))
 
+(space->file m "mmap" :format [:dissect-sparse])
+(= m (load-space "mmap.sm" :format :dissect-sparse))
