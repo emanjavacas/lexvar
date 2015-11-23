@@ -1,0 +1,35 @@
+#+BEGIN_SRC clojure
+(def in-dir "/home/manjavacas/data/lexvar/")
+(def fs (.listFiles (clojure.java.io/file in-dir)))
+(def at-files
+  (filter #(re-matches #".*_at_.*tagged" (.getName %)) fs))
+(def de-files
+  (filter #(re-matches #".*_de_.*tagged*" (.getName %)) fs))
+(def DEATs (pfrequencies-b (parse-corpus (flatten (map lazy-lines (concat de-files at-files)))
+                                         :input :word)
+                           50000
+                           chunks))
+(frm-save "DEAT.freqs" DEATs)
+(def DEATs (sort-by second > (frm-load "DEAT.freqs")))
+(def NNVVADJ (filter (fn [[t f]] (and (re-matches #"\w+_.*" t) (re-matches #".*_(NN.*|VV.*|ADJ.*)" t))) DEATs))
+(def most50 (filter #(<= 50 (second %)) NNVVADJ))
+(frm-save "least50.freqs" (map first most50))
+(def lines (parse-corpus (lazy-lines "/Users/quique/corpora/blogger/lexvar/lexvar_at_test.filt") :input :word))
+(def sample (take 10 (filter #(some #{"Mensch_NN"} %) lines)))
+;(sliding-window "Mensch_NN" (cons "Mensch_NN" (nth sample 3)) 4)
+(def targets (frm-load "least50.freqs"))
+(defn read-csv [fname sep]
+  (let [lines (s/split (slurp fname) #"\r\n")]
+    (map #(s/split % (re-pattern sep)) lines)))
+(def data (rest (read-csv  "/Users/quique/code/clojure/lexvar/resources/ger_datasets/gur350.csv" ";")))
+(frm-save "targets_ger_filt.freqs"
+   (vec (clojure.set/intersection
+        (into #{} (map s/trim (into (map first data) (map second data))))
+        (into #{} (map #(first (s/split % #"_")) red-targets)))))
+(def mats (for [target (into #{} (map s/trim (into (map first data) (map second data))))]
+            [target (into #{} (filter #(.startsWith %  (str target "_")) red-targets))]))
+(def mats2 (reduce #(into %1 %2) [] (map second mats)))
+(frm-save "targets_ger_filt.freqs" mats2)
+(def red-targets (map (fn [t] (s/replace t #"(V|ADJ|NN)[A-Z]+" #(%1 1))) targets))
+(frm-save "least50filt.freqs" red-targets)
+#+END_SRC
